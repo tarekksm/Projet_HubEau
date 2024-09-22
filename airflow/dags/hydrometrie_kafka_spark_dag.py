@@ -1,6 +1,6 @@
 from datetime import timedelta
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 from datetime import datetime
 
@@ -24,22 +24,23 @@ with DAG(
 ) as dag:
 
     # Task to send data to Kafka
-    kafka_stream_task = PythonOperator(
+    kafka_stream_task = BashOperator(
         task_id="kafka_hydrometrie_data_stream",
-        python_callable=stream_hydrometrie_data,
+        bash_command="python /opt/airflow/kafka/kafka_stream_data.py",
         dag=dag,
     )
 
     # Spark task to consume and process Kafka data
     spark_stream_task = DockerOperator(
         task_id="pyspark_consumer_hydrometrie",
-        image="hydrometrie_spark:latest",
+        image="hydrometrie_spark:latest",  # When you build the spark image, name it like this one
         api_version="auto",
         auto_remove=True,
         command="./bin/spark-submit --master local[*] --packages org.postgresql:postgresql:42.5.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 ./spark_streaming.py",
-        docker_url='tcp://docker-proxy:2375',
+        docker_url='unix://var/run/docker.sock',
         environment={'SPARK_LOCAL_HOSTNAME': 'localhost'},
         network_mode="airflow-kafka",
+        mount_tmp_dir=False,
         dag=dag,
     )
 

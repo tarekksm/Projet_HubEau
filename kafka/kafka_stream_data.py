@@ -22,7 +22,6 @@ def update_last_processed_date(date):
 
 
 
-
 # Function for extracting hydrometric data via the Hub'Eau API and sending it to Kafka
 def stream_hydrometrie_data():
     last_processed = get_last_processed_date()
@@ -33,7 +32,7 @@ def stream_hydrometrie_data():
 
     # If the last processed data is older than a month, replace it by deadline limit
     if last_processed < one_month_ago:
-        print(f"La date de début des observations est trop ancienne, ajustée à {one_month_ago}")
+        print(f"The start date of the observations is too early, set to{one_month_ago}")
         last_processed = one_month_ago
     
     # Get current date for end date

@@ -1,6 +1,7 @@
 version: '3'
+
 services:
-  # Zookeeper pour Kafka
+  # Zookeeper for Kafka
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.1
     environment:
@@ -20,6 +21,7 @@ services:
     depends_on:
       - zookeeper
 
+  # PostgreSQL for Airflow metadata
   postgres:
     image: postgres:13
     environment:
@@ -30,35 +32,74 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - airflow-kafka
 
+  # Airflow Webserver
   airflow-webserver:
     image: apache/airflow:2.8.0
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+      DOCKER_HOST: unix:///var/run/docker.sock
+    networks:
+      - airflow-kafka
     volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./kafka:/opt/airflow/kafka
+      - ./requirements.txt:/requirements.txt
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
     depends_on:
       - postgres
       - kafka
-    entrypoint: bash -c "airflow db init && airflow webserver"
+    entrypoint: bash -c "pip install -r /requirements.txt && airflow db init && airflow webserver"
 
+  # Airflow Scheduler
   airflow-scheduler:
     image: apache/airflow:2.8.0
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    networks:
+      - airflow-kafka
     volumes:
-      - ./dags:/opt/airflow/dags
-      - ./logs:/opt/airflow/logs
-      - ./plugins:/opt/airflow/plugins
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./kafka:/opt/airflow/kafka
+      - ./requirements.txt:/requirements.txt
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - airflow-webserver
       - postgres
-    entrypoint: bash -c "airflow scheduler"
+    entrypoint: bash -c "pip install -r /requirements.txt && airflow scheduler"
+
+  spark:
+    build:
+      context: .
+      dockerfile: ./spark/Dockerfile  # Assurez-vous que le Dockerfile est à cet emplacement
+    networks:
+      - airflow-kafka
+    environment:
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - ./spark/spark_streaming.py:/opt/bitnami/spark/spark_streaming.py
+    depends_on:
+      - kafka
+      - postgres
+    command: ["./bin/spark-submit", "--master", "local[*]", "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.5.1", "/opt/bitnami/spark/spark_streaming.py"]
+
+
+networks:
+  airflow-kafka:
+    driver: bridge
